@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>Resources\tooth.ico</ApplicationIcon>
+    <RootNamespace>DentalOffice</RootNamespace>
+    <AssemblyName>DentalOffice</AssemblyName>
+    <Version>1.0.0</Version>
+    <Authors>DentalOffice Team</Authors>
+    <Description>Dental Office Management Application - Complete automation for dental practice</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
+    <PackageReference Include="Dapper" Version="2.1.24" />
+  </ItemGroup>
+
+</Project>
