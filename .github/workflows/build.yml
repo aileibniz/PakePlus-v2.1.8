@@ -1,0 +1,158 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - 'worker*'
+
+jobs:
+    setup:
+        runs-on: ubuntu-latest
+
+        outputs:
+            matrix: ${{ steps.matrix.outputs.matrix }}
+
+        steps:
+            - name: Generate Matrix
+              id: matrix
+              shell: bash
+              run: |
+                  TAG="${GITHUB_REF_NAME}"
+
+                  MATRIX='{"include":[]}'
+
+                  add_platform() {
+                    local PLATFORM="$1"
+                    local TARGET="$2"
+                    local ARGS="$3"
+
+                    MATRIX=$(jq \
+                      --arg platform "$PLATFORM" \
+                      --arg target "$TARGET" \
+                      --arg args "$ARGS" \
+                      '.include += [{
+                        platform:$platform,
+                        target:$target,
+                        args:$args
+                      }]' <<< "$MATRIX")
+                  }
+
+                  if [[ "$TAG" == "worker-all" ]]; then
+
+                    add_platform "macos-latest" "aarch64-apple-darwin" "--target aarch64-apple-darwin"
+                    add_platform "macos-latest" "x86_64-apple-darwin" "--target x86_64-apple-darwin"
+
+                    add_platform "ubuntu-22.04" "x86_64-unknown-linux-gnu" ""
+                    add_platform "ubuntu-22.04" "aarch64-unknown-linux-gnu" "--target aarch64-unknown-linux-gnu"
+
+                    add_platform "windows-latest" "x86_64-pc-windows-msvc" ""
+                    add_platform "windows-latest" "aarch64-pc-windows-msvc" "--target aarch64-pc-windows-msvc"
+
+                  else
+
+                    [[ "$TAG" == *"mac-arm"* ]] && \
+                      add_platform "macos-latest" "aarch64-apple-darwin" "--target aarch64-apple-darwin"
+
+                    [[ "$TAG" == *"mac-x64"* ]] && \
+                      add_platform "macos-latest" "x86_64-apple-darwin" "--target x86_64-apple-darwin"
+
+                    [[ "$TAG" == *"linux-x64"* ]] && \
+                      add_platform "ubuntu-22.04" "x86_64-unknown-linux-gnu" ""
+
+                    [[ "$TAG" == *"linux-arm"* ]] && \
+                      add_platform "ubuntu-22.04" "aarch64-unknown-linux-gnu" "--target aarch64-unknown-linux-gnu"
+
+                    [[ "$TAG" == *"win-x64"* ]] && \
+                      add_platform "windows-latest" "x86_64-pc-windows-msvc" ""
+
+                    [[ "$TAG" == *"win-arm"* ]] && \
+                      add_platform "windows-latest" "aarch64-pc-windows-msvc" "--target aarch64-pc-windows-msvc"
+
+                  fi
+
+                  echo "Generated Matrix:"
+                  echo "$MATRIX"
+
+                  echo "matrix<<EOF" >> "$GITHUB_OUTPUT"
+                  echo "$MATRIX" >> "$GITHUB_OUTPUT"
+                  echo "EOF" >> "$GITHUB_OUTPUT"
+
+            - name: Validate Matrix
+              run: |
+                  MATRIX='${{ steps.matrix.outputs.matrix }}'
+
+                  if [[ "$MATRIX" == '{"include":[]}' ]]; then
+                    echo "No build target found in tag."
+                    exit 1
+                  fi
+
+    publish-tauri:
+        needs: setup
+
+        permissions:
+            contents: write
+
+        strategy:
+            fail-fast: false
+            matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+
+        runs-on: ${{ matrix.platform }}
+
+        timeout-minutes: 60
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust Target
+              run: rustup target add ${{ matrix.target }}
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - name: Install Dependencies
+              run: pnpm install
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            - name: Regenerate Icons
+              run: pnpm tauri icon
+
+            - name: Init Project Config
+              run: node ./scripts/ppworker.cjs
+
+            - name: Install Linux Dependencies
+              if: matrix.platform == 'ubuntu-22.04'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y \
+                    libwebkit2gtk-4.1-dev \
+                    libappindicator3-dev \
+                    librsvg2-dev \
+                    patchelf
+
+            - name: Build
+              uses: Sjj1024/tauri-zhaction@tauri-zhaciton
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  NAME: ${{ env.NAME }}
+                  VERSION: ${{ env.VERSION }}
+                  PUBBODY: ${{ env.PUBBODY }}
+              with:
+                  tagName: '${{ env.NAME }}'
+                  releaseName: '${{ env.NAME }} v${{ env.VERSION }}'
+                  releaseBody: '${{ env.PUBBODY }}'
+                  releaseDraft: false
+                  prerelease: false
+                  args: ${{ matrix.args }}
+                  renameArtifacts: '${{ env.NAME }}'
